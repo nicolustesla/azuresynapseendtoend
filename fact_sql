@@ -1,0 +1,172 @@
+CREATE EXTERNAL DATA SOURCE blob_retail_datasource
+WITH (
+    LOCATION = 'https://synapsesgacc.blob.core.windows.net/synasstorage'
+);
+
+SELECT *
+FROM sys.external_data_sources;
+
+CREATE EXTERNAL FILE FORMAT ParquetFormat
+WITH (
+    FORMAT_TYPE = PARQUET
+);
+
+SELECT *
+FROM sys.external_file_formats;
+
+CREATE EXTERNAL TABLE fact_sales (
+    event_date DATE,
+    customer_id VARCHAR(100),
+    product_id VARCHAR(100),
+    product_category VARCHAR(100),
+    location VARCHAR(100),
+    payment_method VARCHAR(50),
+    sales_amount FLOAT,
+    quantity BIGINT
+)
+WITH (
+    LOCATION = '/gold/fact_sales/',
+    DATA_SOURCE = blob_retail_datasource,
+    FILE_FORMAT = ParquetFormat
+);
+
+SELECT TOP 100 *
+FROM fact_sales;
+
+CREATE EXTERNAL TABLE dim_customer (
+    customer_id VARCHAR(100)
+)
+WITH (
+    LOCATION = '/gold/dim_customer/',
+    DATA_SOURCE = blob_retail_datasource,
+    FILE_FORMAT = ParquetFormat
+);
+
+SELECT TOP 100 *
+FROM dim_customer;
+
+CREATE EXTERNAL TABLE dim_product (
+    product_id VARCHAR(100),
+    product_category VARCHAR(100)
+)
+WITH (
+    LOCATION = '/gold/dim_product/',
+    DATA_SOURCE = blob_retail_datasource,
+    FILE_FORMAT = ParquetFormat
+);
+
+SELECT TOP 100 *
+FROM dim_product;
+
+CREATE EXTERNAL TABLE dim_location (
+    location VARCHAR(100)
+)
+WITH (
+    LOCATION = '/gold/dim_location/',
+    DATA_SOURCE = blob_retail_datasource,
+    FILE_FORMAT = ParquetFormat
+);
+
+SELECT TOP 100 *
+FROM dim_location;
+
+CREATE EXTERNAL TABLE dim_date (
+    event_date DATE,
+    year INT,
+    month INT,
+    quarter INT,
+    day INT,
+    day_of_week INT,
+    month_name VARCHAR(20)
+)
+WITH (
+    LOCATION = '/gold/dim_date/',
+    DATA_SOURCE = blob_retail_datasource,
+    FILE_FORMAT = ParquetFormat
+);
+
+SELECT TOP 100 *
+FROM dim_date;
+
+CREATE VIEW vw_retail_star_schema
+AS
+SELECT
+    f.event_date,
+    f.customer_id,
+    f.product_id,
+    p.product_category,
+    f.location,
+    f.payment_method,
+    f.sales_amount,
+    f.quantity,
+    d.year,
+    d.month,
+    d.quarter,
+    d.month_name
+FROM fact_sales f
+LEFT JOIN dim_product p
+    ON f.product_id = p.product_id
+LEFT JOIN dim_date d
+    ON f.event_date = d.event_date;
+
+SELECT TOP 100 *
+FROM vw_retail_star_schema;
+
+CREATE VIEW vw_revenue_kpi
+AS
+SELECT
+    event_date,
+    SUM(sales_amount) AS total_revenue,
+    SUM(quantity) AS total_quantity,
+    COUNT(DISTINCT customer_id) AS unique_customers
+FROM fact_sales
+GROUP BY event_date;
+
+SELECT TOP 100 *
+FROM vw_revenue_kpi
+ORDER BY event_date;
+
+CREATE VIEW vw_product_performance
+AS
+SELECT
+    product_id,
+    product_category,
+    SUM(sales_amount) AS total_revenue,
+    SUM(quantity) AS total_quantity,
+    COUNT(DISTINCT customer_id) AS unique_customers
+FROM fact_sales
+GROUP BY
+    product_id,
+    product_category;
+
+SELECT TOP 100 *
+FROM vw_product_performance
+ORDER BY total_revenue DESC;
+
+CREATE VIEW vw_location_performance
+AS
+SELECT
+    location,
+    SUM(sales_amount) AS total_revenue,
+    SUM(quantity) AS total_quantity,
+    COUNT(DISTINCT customer_id) AS unique_customers
+FROM fact_sales
+GROUP BY location;
+
+SELECT *
+FROM vw_location_performance
+ORDER BY total_revenue DESC;
+
+CREATE VIEW vw_customer_performance
+AS
+SELECT
+    customer_id,
+    SUM(sales_amount) AS total_spent,
+    SUM(quantity) AS total_quantity,
+    COUNT(DISTINCT product_id) AS products_purchased
+FROM fact_sales
+GROUP BY customer_id;
+
+SELECT TOP 100 *
+FROM vw_customer_performance
+ORDER BY total_spent DESC;
